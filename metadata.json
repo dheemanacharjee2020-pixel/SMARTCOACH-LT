@@ -1,0 +1,7 @@
+{
+  "name": "SmartCoach LT",
+  "description": "AI-powered interview coaching platform with real-time speech analytics, company intel, ATS resume matching, and STAR-structured critical feedback.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
