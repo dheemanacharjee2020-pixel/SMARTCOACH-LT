@@ -5,8 +5,10 @@ import {
   AtsResult, 
   InterviewQuestion, 
   AnswerCritique, 
-  SessionEvaluation 
+  SessionEvaluation,
+  CandidateTrack
 } from '../types';
+import { getFallbackInterviewQuestions } from '../utils/api';
 import { PrepStep } from './PrepStep';
 import { JobDescriptionStep } from './JobDescriptionStep';
 import { AtsCheckStep } from './AtsCheckStep';
@@ -39,6 +41,8 @@ interface InterviewSessionStageProps {
   isGeneratingQuestions: boolean;
   evaluatedSession: SessionEvaluation | null;
   isEvaluatingFinalSession: boolean;
+  candidateTrack?: CandidateTrack;
+  onSelectCandidateTrack?: (track: CandidateTrack) => void;
   initialSubStep?: InterviewStageSubStep;
   onBackToDashboard: () => void;
   onProceedToJobDescription: (parsedResume: string, fileName: string, company: CompanyProfile) => void;
@@ -63,6 +67,8 @@ export const InterviewSessionStage: React.FC<InterviewSessionStageProps> = ({
   isGeneratingQuestions,
   evaluatedSession,
   isEvaluatingFinalSession,
+  candidateTrack = 'undergraduate',
+  onSelectCandidateTrack,
   initialSubStep = 'prep',
   onBackToDashboard,
   onProceedToJobDescription,
@@ -136,6 +142,8 @@ export const InterviewSessionStage: React.FC<InterviewSessionStageProps> = ({
             initialResumeText={resumeText}
             initialResumeFileName={resumeFileName}
             initialCompanyName={targetCompany?.name || ''}
+            candidateTrack={candidateTrack}
+            onSelectCandidateTrack={onSelectCandidateTrack}
             onProceedToJobDescription={(res, file, comp) => {
               onProceedToJobDescription(res, file, comp);
               setStageStep('job_description');
@@ -149,6 +157,7 @@ export const InterviewSessionStage: React.FC<InterviewSessionStageProps> = ({
             resumeFileName={resumeFileName}
             initialRoleTitle={roleTitle}
             initialJobDescription={jobDescription}
+            candidateTrack={candidateTrack}
             onProceedToAts={(role, jd) => {
               onProceedToAts(role, jd);
               setStageStep('ats_check');
@@ -165,6 +174,7 @@ export const InterviewSessionStage: React.FC<InterviewSessionStageProps> = ({
             jobDescription={jobDescription}
             atsResult={atsResult}
             isLoading={isAtsLoading}
+            candidateTrack={candidateTrack}
             onRunAtsAnalysis={onRunAtsAnalysis}
             onProceedToInterview={(score) => {
               onProceedToLiveInterview(score);
@@ -182,28 +192,18 @@ export const InterviewSessionStage: React.FC<InterviewSessionStageProps> = ({
                 Calibrating Interview Room for {targetCompany?.name || 'Target Enterprise'}...
               </h2>
               <p className="text-xs text-slate-400 max-w-md text-center">
-                Generating behavioral STAR questions matching {roleTitle} rubric and corporate leadership principles.
+                Generating behavioral STAR questions matching {roleTitle} rubric and candidate education progression.
               </p>
             </div>
-          ) : questions.length > 0 ? (
+          ) : (
             <InterviewStep
-              questions={questions}
+              questions={questions.length > 0 ? questions : getFallbackInterviewQuestions(targetCompany?.name, roleTitle, undefined, candidateTrack)}
               companyName={targetCompany?.name || 'Target Company'}
               onFinishInterview={(answers) => {
                 onFinishInterview(answers);
                 setStageStep('debrief');
               }}
             />
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center p-12 space-y-4 min-h-[400px]">
-              <p className="text-xs text-red-400 font-mono">No interview questions prepared. Return to setup step.</p>
-              <button
-                onClick={() => setStageStep('prep')}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold text-xs uppercase tracking-wider cursor-pointer"
-              >
-                Back to Interview Setup
-              </button>
-            </div>
           )
         )}
 

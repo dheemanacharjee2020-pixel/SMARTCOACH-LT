@@ -6,7 +6,8 @@ import {
   AtsResult, 
   InterviewQuestion, 
   AnswerCritique, 
-  SessionEvaluation 
+  SessionEvaluation,
+  CandidateTrack
 } from './types';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -18,28 +19,26 @@ import { AtsCheckStep } from './components/AtsCheckStep';
 import { PrepStep } from './components/PrepStep';
 import { JobDescriptionStep } from './components/JobDescriptionStep';
 import { DashboardStep } from './components/DashboardStep';
-import { SAMPLE_RESUMES, SAMPLE_JOB_DESCRIPTIONS } from './data/sampleData';
+import { ThemeToggle } from './components/ThemeToggle';
+import { SettingsModal } from './components/SettingsModal';
+import { useSettings } from './context/SettingsContext';
+import { safeFetchJson, getFallbackInterviewQuestions } from './utils/api';
+import { Settings } from 'lucide-react';
 
 export default function App() {
+  const { openSettings } = useSettings();
+
   // Session Navigation State
   const [currentStep, setCurrentStep] = useState<StepKey>('auth');
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [candidateTrack, setCandidateTrack] = useState<CandidateTrack>('undergraduate');
 
-  // Candidate Data State
-  const [resumeText, setResumeText] = useState<string>(SAMPLE_RESUMES[0].text);
-  const [resumeFileName, setResumeFileName] = useState<string>(SAMPLE_RESUMES[0].fileName);
-  const [targetCompany, setTargetCompany] = useState<CompanyProfile | null>({
-    name: 'Stripe',
-    industry: 'Financial Technology / Infrastructure',
-    description: 'Global developer-first payments infrastructure and money movement.',
-    interviewStyle: 'Rigorous STAR behavioral, distributed systems, and real-time reliability.',
-    keyValues: ['Users First', 'Rigorous Craft', 'Ownership & Velocity'],
-    coreTechOrSkills: ['TypeScript', 'React', 'Distributed Systems', 'PostgreSQL'],
-    source: 'db',
-    verified: true
-  });
-  const [roleTitle, setRoleTitle] = useState<string>(SAMPLE_JOB_DESCRIPTIONS['Stripe']?.role || 'Senior Full-Stack Engineer');
-  const [jobDescription, setJobDescription] = useState<string>(SAMPLE_JOB_DESCRIPTIONS['Stripe']?.jd || '');
+  // Candidate Data State (Clean unpopulated initial state)
+  const [resumeText, setResumeText] = useState<string>('');
+  const [resumeFileName, setResumeFileName] = useState<string>('');
+  const [targetCompany, setTargetCompany] = useState<CompanyProfile | null>(null);
+  const [roleTitle, setRoleTitle] = useState<string>('');
+  const [jobDescription, setJobDescription] = useState<string>('');
   
   // ATS State
   const [atsResult, setAtsResult] = useState<AtsResult | null>(null);
@@ -52,27 +51,32 @@ export default function App() {
   const [isEvaluatingFinalSession, setIsEvaluatingFinalSession] = useState<boolean>(false);
 
   // 1. Auth Login Handler
-  const handleLoginSuccess = (user: UserProfile, isReturning: boolean) => {
+  const handleLoginSuccess = (user: UserProfile, isReturning: boolean, track?: CandidateTrack) => {
     setCurrentUser(user);
-    if (isReturning && user.savedResumeText && user.savedCompanyName) {
-      setResumeText(user.savedResumeText);
-      setResumeFileName(user.savedResumeFileName || 'Saved_Resume.pdf');
-      setRoleTitle(user.savedRoleTitle || 'Senior Software Engineer');
+    if (track) {
+      setCandidateTrack(track);
+    } else if (user.candidateTrack) {
+      setCandidateTrack(user.candidateTrack);
+    }
+
+    if (user.savedCompanyName) {
+      setResumeText(user.savedResumeText || '');
+      setResumeFileName(user.savedResumeFileName || `${user.name.replace(/\s+/g, '_')}_Resume.pdf`);
+      setRoleTitle(user.savedRoleTitle || (track === 'undergraduate' ? 'Software Engineer I (Campus Placement)' : 'Senior Engineer'));
       setJobDescription(user.savedJobDescription || '');
       
       // Auto hydrate company
       setTargetCompany({
         name: user.savedCompanyName,
-        industry: 'Financial Technology / Infrastructure',
-        description: 'Global developer-first payments infrastructure.',
-        interviewStyle: 'Rigorous STAR behavioral & distributed systems coding.',
-        keyValues: ['Users First', 'Rigorous Craft', 'Ownership'],
-        coreTechOrSkills: ['TypeScript', 'React', 'Distributed Systems'],
+        industry: 'Technology & Enterprise Solutions',
+        description: `Target interview preparation for ${user.savedCompanyName}.`,
+        interviewStyle: 'Structured STAR behavioral, analytical problem solving, and role competency.',
+        keyValues: ['Customer Empathy', 'Technical Excellence', 'Team Leadership'],
+        coreTechOrSkills: ['Problem Solving', 'Communication', 'Domain Mastery'],
         source: 'db',
         verified: true
       });
 
-      // Returning users land on their home dashboard directly
       setCurrentStep('home');
     } else {
       // First-time user onboarding
@@ -86,23 +90,31 @@ export default function App() {
     setCurrentStep('interview_stage');
 
     try {
-      const res = await fetch('/api/interview/questions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          roleTitle,
-          jobDescription,
-          companyProfile: targetCompany,
-          resumeText,
-          focusArea: focusTitle
-        })
-      });
-      const data = await res.json();
-      if (data.success && data.questions && data.questions.length > 0) {
+      const { success, data, error } = await safeFetchJson<{ success: boolean; questions: InterviewQuestion[] }>(
+        '/api/interview/questions',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roleTitle,
+            jobDescription,
+            companyProfile: targetCompany,
+            resumeText,
+            focusArea: focusTitle,
+            candidateTrack
+          })
+        }
+      );
+
+      if (success && data?.questions && data.questions.length > 0) {
         setQuestions(data.questions);
+      } else {
+        console.warn('API returned fallback needed for focused questions:', error);
+        setQuestions(getFallbackInterviewQuestions(targetCompany?.name, roleTitle, focusTitle, candidateTrack));
       }
     } catch (err) {
-      console.error('Failed to generate focused questions:', err);
+      console.warn('Failed to generate focused questions, using fallback:', err);
+      setQuestions(getFallbackInterviewQuestions(targetCompany?.name, roleTitle, focusTitle, candidateTrack));
     } finally {
       setIsGeneratingQuestions(false);
     }
@@ -116,14 +128,15 @@ export default function App() {
 
     // Save profile updates to backend
     if (currentUser?.id) {
-      fetch('/api/auth/update-profile', {
+      safeFetchJson('/api/auth/update-profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: currentUser.id,
           resumeText: parsedResume,
           resumeFileName: fileName,
-          companyName: company.name
+          companyName: company.name,
+          candidateTrack
         })
       }).catch(console.warn);
     }
@@ -142,19 +155,24 @@ export default function App() {
   const runAtsAnalysis = async (threshold: number = 60, customRole?: string, customJd?: string) => {
     setIsAtsLoading(true);
     try {
-      const res = await fetch('/api/ats/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          resumeText,
-          jobDescription: customJd || jobDescription,
-          companyProfile: targetCompany,
-          threshold
-        })
-      });
-      const data = await res.json();
-      if (data.success && data.result) {
+      const { success, data, error } = await safeFetchJson<{ success: boolean; result: AtsResult }>(
+        '/api/ats/analyze',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            resumeText,
+            jobDescription: customJd || jobDescription,
+            companyProfile: targetCompany,
+            threshold,
+            candidateTrack
+          })
+        }
+      );
+      if (success && data?.result) {
         setAtsResult(data.result);
+      } else {
+        console.warn('ATS Analysis notice:', error);
       }
     } catch (err) {
       console.error('ATS Analysis error:', err);
@@ -170,35 +188,44 @@ export default function App() {
 
     // Save updated score to user profile
     if (currentUser?.id && atsScore) {
-      fetch('/api/auth/update-profile', {
+      safeFetchJson('/api/auth/update-profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: currentUser.id,
           roleTitle,
           jobDescription,
-          atsScore
+          atsScore,
+          candidateTrack
         })
       }).catch(console.warn);
     }
 
     try {
-      const res = await fetch('/api/interview/questions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          roleTitle,
-          jobDescription,
-          companyProfile: targetCompany,
-          resumeText
-        })
-      });
-      const data = await res.json();
-      if (data.success && data.questions && data.questions.length > 0) {
+      const { success, data, error } = await safeFetchJson<{ success: boolean; questions: InterviewQuestion[] }>(
+        '/api/interview/questions',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roleTitle,
+            jobDescription,
+            companyProfile: targetCompany,
+            resumeText,
+            candidateTrack
+          })
+        }
+      );
+
+      if (success && data?.questions && data.questions.length > 0) {
         setQuestions(data.questions);
+      } else {
+        console.warn('API question generation returned notice, activating curated rubric:', error);
+        setQuestions(getFallbackInterviewQuestions(targetCompany?.name, roleTitle, undefined, candidateTrack));
       }
     } catch (err) {
-      console.error('Failed to generate interview questions:', err);
+      console.warn('Failed to generate interview questions, using rubric fallback:', err);
+      setQuestions(getFallbackInterviewQuestions(targetCompany?.name, roleTitle, undefined, candidateTrack));
     } finally {
       setIsGeneratingQuestions(false);
     }
@@ -209,18 +236,24 @@ export default function App() {
     setIsEvaluatingFinalSession(true);
 
     try {
-      const res = await fetch('/api/interview/evaluate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          companyName: targetCompany?.name || 'Target Company',
-          roleTitle,
-          answers: evaluatedAnswers
-        })
-      });
-      const data = await res.json();
-      if (data.success && data.evaluation) {
+      const { success, data, error } = await safeFetchJson<{ success: boolean; evaluation: SessionEvaluation }>(
+        '/api/interview/evaluate',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            companyName: targetCompany?.name || 'Target Company',
+            roleTitle,
+            answers: evaluatedAnswers,
+            candidateTrack
+          })
+        }
+      );
+
+      if (success && data?.evaluation) {
         setEvaluatedSession(data.evaluation);
+      } else {
+        console.warn('Evaluation response notice:', error);
       }
     } catch (err) {
       console.error('Failed to evaluate session:', err);
@@ -279,11 +312,24 @@ export default function App() {
             </div>
             <div className="h-4 w-px bg-slate-700"></div>
             <div className="text-xs text-slate-400 font-mono">
-              Session: <span className="text-slate-100 font-medium font-sans">{targetCompany ? `${roleTitle} @ ${targetCompany.name}` : (currentUser ? `${currentUser.name}'s Prep Hub` : 'Executive Calibration')}</span>
+              Session: <span className="text-slate-100 font-medium font-sans">{targetCompany ? `${roleTitle} @ ${targetCompany.name}` : (currentUser ? `${currentUser.name}'s Prep Hub` : 'Interview Calibration')}</span>
             </div>
           </div>
 
-          <div className="flex items-center space-x-5">
+          <div className="flex items-center space-x-3">
+            <ThemeToggle variant="pill" />
+
+            <button
+              id="btn-desktop-settings"
+              onClick={openSettings}
+              className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-slate-100 border border-slate-700 transition-colors cursor-pointer flex items-center gap-1 text-xs font-mono"
+              aria-label="Open Settings"
+              title="Settings"
+            >
+              <Settings className="w-3.5 h-3.5 text-blue-400" />
+              <span>Settings</span>
+            </button>
+
             <div className="flex items-center space-x-2">
               <div className={`w-2 h-2 rounded-full ${isInterviewLiveActive ? 'bg-blue-500 animate-ping' : 'bg-green-500'}`}></div>
               <span className="text-[10px] uppercase tracking-widest text-slate-400 font-mono">
@@ -304,6 +350,8 @@ export default function App() {
               <AuthStep
                 onLoginSuccess={handleLoginSuccess}
                 currentUser={currentUser}
+                candidateTrack={candidateTrack}
+                onSelectCandidateTrack={setCandidateTrack}
               />
             </div>
           )}
@@ -314,6 +362,8 @@ export default function App() {
               currentUser={currentUser}
               targetCompany={targetCompany}
               roleTitle={roleTitle}
+              candidateTrack={candidateTrack}
+              onSelectCandidateTrack={setCandidateTrack}
               latestEvaluation={evaluatedSession}
               onStartInterview={() => handleProceedToInterview()}
               onOpenAtsCheck={() => setCurrentStep('ats_check')}
@@ -332,6 +382,8 @@ export default function App() {
               currentUser={currentUser}
               targetCompany={targetCompany}
               roleTitle={roleTitle}
+              candidateTrack={candidateTrack}
+              onSelectCandidateTrack={setCandidateTrack}
               latestEvaluation={evaluatedSession}
               onStartInterview={() => handleProceedToInterview()}
               onOpenAtsCheck={() => setCurrentStep('ats_check')}
@@ -359,6 +411,8 @@ export default function App() {
               isGeneratingQuestions={isGeneratingQuestions}
               evaluatedSession={evaluatedSession}
               isEvaluatingFinalSession={isEvaluatingFinalSession}
+              candidateTrack={candidateTrack}
+              onSelectCandidateTrack={setCandidateTrack}
               initialSubStep={questions.length > 0 ? 'live' : 'prep'}
               onBackToDashboard={() => setCurrentStep('home')}
               onProceedToJobDescription={handleProceedToJobDescription}
@@ -390,6 +444,8 @@ export default function App() {
                 initialResumeText={resumeText}
                 initialResumeFileName={resumeFileName}
                 initialCompanyName={targetCompany?.name || ''}
+                candidateTrack={candidateTrack}
+                onSelectCandidateTrack={setCandidateTrack}
                 onProceedToJobDescription={handleProceedToJobDescription}
               />
             </div>
@@ -403,6 +459,7 @@ export default function App() {
                 resumeFileName={resumeFileName}
                 initialRoleTitle={roleTitle}
                 initialJobDescription={jobDescription}
+                candidateTrack={candidateTrack}
                 onProceedToAts={handleProceedToAts}
                 onBack={() => setCurrentStep('prep')}
               />
@@ -419,6 +476,7 @@ export default function App() {
                 jobDescription={jobDescription}
                 atsResult={atsResult}
                 isLoading={isAtsLoading}
+                candidateTrack={candidateTrack}
                 onRunAtsAnalysis={runAtsAnalysis}
                 onProceedToInterview={handleProceedToInterview}
                 onBackToJobDescription={() => setCurrentStep('job_description')}
@@ -447,6 +505,9 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {/* Persistent Settings Modal */}
+      <SettingsModal />
     </div>
   );
 }

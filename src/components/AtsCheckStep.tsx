@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { AtsResult, CompanyProfile } from '../types';
+import { AtsResult, CompanyProfile, CandidateTrack } from '../types';
+import { CANDIDATE_TRACKS, getQuestionCountForTrack } from '../utils/tracks';
 import { 
   BarChart3, 
   CheckCircle2, 
@@ -9,9 +10,10 @@ import {
   ArrowRight, 
   RefreshCw, 
   Sparkles, 
-  Layers,
+  Layers, 
   ArrowLeft,
-  Bot
+  Bot,
+  GraduationCap
 } from 'lucide-react';
 
 interface AtsCheckStepProps {
@@ -21,6 +23,7 @@ interface AtsCheckStepProps {
   jobDescription: string;
   atsResult: AtsResult | null;
   isLoading: boolean;
+  candidateTrack?: CandidateTrack;
   onRunAtsAnalysis: (threshold: number) => void;
   onProceedToInterview: (atsScore: number) => void;
   onBackToJobDescription: () => void;
@@ -33,11 +36,14 @@ export const AtsCheckStep: React.FC<AtsCheckStepProps> = ({
   jobDescription,
   atsResult,
   isLoading,
+  candidateTrack = 'undergraduate',
   onRunAtsAnalysis,
   onProceedToInterview,
   onBackToJobDescription
 }) => {
   const [threshold, setThreshold] = useState<number>(atsResult?.threshold || 60);
+  const activeTrack = CANDIDATE_TRACKS.find(t => t.id === candidateTrack) || CANDIDATE_TRACKS[0];
+  const questionCount = getQuestionCountForTrack(candidateTrack);
 
   const handleThresholdChange = (newVal: number) => {
     setThreshold(newVal);
@@ -58,9 +64,15 @@ export const AtsCheckStep: React.FC<AtsCheckStepProps> = ({
           <span>Back to Role Details</span>
         </button>
 
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded bg-blue-900/20 border border-blue-500/30 text-blue-400 text-[10px] font-mono font-bold uppercase tracking-widest">
-          <BarChart3 className="w-3.5 h-3.5" />
-          <span>Stage 4: ATS Resume Match Analyzer</span>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#161B29] border border-slate-800 text-slate-300 text-[10px] font-mono">
+            <GraduationCap className="w-3.5 h-3.5 text-blue-400" />
+            <span>Track: <strong className="text-blue-400">{activeTrack.label.split('/')[0].trim()}</strong> ({questionCount} Qs)</span>
+          </span>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded bg-blue-900/20 border border-blue-500/30 text-blue-400 text-[10px] font-mono font-bold uppercase tracking-widest">
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Stage 4: ATS Resume Match Analyzer</span>
+          </div>
         </div>
       </div>
 
@@ -213,7 +225,7 @@ export const AtsCheckStep: React.FC<AtsCheckStepProps> = ({
             onClick={() => onProceedToInterview(atsResult.matchScore)}
             className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider rounded flex items-center justify-center gap-2 cursor-pointer shadow-md active:scale-98 transition-all"
           >
-            <span>{isBelowThreshold ? 'Continue to Interview Anyway' : 'Start Live Interview Session'}</span>
+            <span>{isBelowThreshold ? `Continue to Interview Anyway (${questionCount} Questions)` : `Start Live Interview Session (${questionCount} Questions)`}</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>

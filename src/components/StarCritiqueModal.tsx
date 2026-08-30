@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { AnswerCritique, StarStatus } from '../types';
+import confetti from 'canvas-confetti';
 import { 
   Bot, 
   CheckCircle2, 
@@ -12,7 +13,9 @@ import {
   Volume2, 
   Gauge, 
   Layers,
-  X
+  X,
+  CornerDownLeft,
+  Trophy
 } from 'lucide-react';
 
 interface StarCritiqueModalProps {
@@ -28,6 +31,34 @@ export const StarCritiqueModal: React.FC<StarCritiqueModalProps> = ({
   totalQuestions,
   onContinue
 }) => {
+  const isHighScore = critique.overallScore >= 85;
+
+  useEffect(() => {
+    if (isHighScore) {
+      try {
+        confetti({
+          particleCount: 50,
+          spread: 70,
+          origin: { y: 0.6 },
+          colors: ['#10b981', '#3b82f6', '#fbbf24', '#f59e0b']
+        });
+      } catch (err) {
+        console.warn('Mini confetti error:', err);
+      }
+    }
+  }, [isHighScore]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === 'Escape' || e.code === 'Space') {
+        e.preventDefault();
+        onContinue();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onContinue]);
+
   const getStatusBadge = (status: StarStatus) => {
     switch (status) {
       case 'Strong':
@@ -73,12 +104,18 @@ export const StarCritiqueModal: React.FC<StarCritiqueModalProps> = ({
               <Bot className="w-4 h-4" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-bold text-sm text-slate-100 uppercase font-mono">
                   STAR Evaluation (Q{questionNumber}/{totalQuestions})
                 </h3>
-                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-[#161B29] text-blue-400 border border-slate-800">
-                  Score: {critique.overallScore}/100
+                <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border flex items-center gap-1 ${
+                  isHighScore
+                    ? 'bg-emerald-950/40 text-emerald-300 border-emerald-500/50 shadow-sm'
+                    : 'bg-[#161B29] text-blue-400 border-slate-800'
+                }`}>
+                  {isHighScore && <Trophy className="w-3 h-3 text-amber-400" />}
+                  <span>Score: {critique.overallScore}/100</span>
+                  {isHighScore && <Sparkles className="w-2.5 h-2.5 text-emerald-400" />}
                 </span>
               </div>
               <p className="text-[11px] text-slate-400">Demanding interviewer breakdown of your response.</p>
@@ -176,19 +213,6 @@ export const StarCritiqueModal: React.FC<StarCritiqueModalProps> = ({
               </div>
             </div>
           </div>
-
-          {/* Model Answer Exemplar */}
-          {critique.modelAnswerExemplar && (
-            <div className="bg-[#0B0F1A] p-3 rounded border border-green-900/40">
-              <div className="flex items-center gap-1.5 text-[10px] font-mono text-green-400 mb-1.5 font-bold uppercase tracking-wider">
-                <Sparkles className="w-3.5 h-3.5 text-green-400" />
-                <span>Bar-Raiser Model Answer Exemplar</span>
-              </div>
-              <p className="text-xs text-slate-300 whitespace-pre-line leading-relaxed font-sans">
-                {critique.modelAnswerExemplar}
-              </p>
-            </div>
-          )}
         </div>
 
         {/* Footer CTA */}
@@ -200,10 +224,13 @@ export const StarCritiqueModal: React.FC<StarCritiqueModalProps> = ({
           <button
             id="btn-continue-from-critique"
             onClick={onContinue}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider rounded flex items-center gap-1.5 cursor-pointer transition-colors shadow-md"
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider rounded flex items-center gap-2 cursor-pointer transition-colors shadow-md group"
           >
             <span>{isLastQuestion ? 'Proceed to Final Evaluation' : 'Next Question'}</span>
-            <ArrowRight className="w-3.5 h-3.5" />
+            <kbd className="px-1.5 py-0.5 rounded bg-blue-800 border border-blue-400/40 text-[10px] font-mono text-blue-100 uppercase tracking-normal">
+              Enter ↵
+            </kbd>
+            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
           </button>
         </div>
       </div>

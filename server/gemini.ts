@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { CompanyProfile, AtsResult, InterviewQuestion, AnswerCritique, SessionEvaluation, LanguageCode, SpeechMetrics } from "../src/types";
+import { CompanyProfile, AtsResult, InterviewQuestion, AnswerCritique, SessionEvaluation, LanguageCode, SpeechMetrics, CandidateTrack } from "../src/types";
+import { getFallbackInterviewQuestions } from "../src/utils/api";
 
 // Always lazy initialize the client or ensure safe access
 let aiClient: GoogleGenAI | null = null;
@@ -89,7 +90,7 @@ async function callGeminiWithCascade(params: {
 }
 
 /**
- * Company Research & Verification
+ * Company Research & Verification with In-Depth Profile & Open Hiring Roles
  */
 export async function researchCompanyWithGemini(companyName: string): Promise<CompanyProfile> {
   const key = companyName.trim().toLowerCase();
@@ -103,43 +104,90 @@ export async function researchCompanyWithGemini(companyName: string): Promise<Co
       interviewStyle: "",
       keyValues: [],
       coreTechOrSkills: [],
+      availableRoles: [],
       source: 'not_found',
       verified: false
     };
   }
 
-  const prompt = `Research the company named "${companyName}". 
-Verify if this is a legitimate, recognized real-world company, organization, or startup.
-If it is a real company, extract its core public profile, industry, engineering/workplace culture, typical interview evaluation style, key corporate values, and core technical or business skills.
-If this name is gibberish, unrecognizable, or purely fictional, set verified to false.
+  const prompt = `Perform thorough corporate intelligence research on the real-world company or organization named "${companyName}".
+
+1. VERIFICATION:
+- Check if "${companyName}" is a recognized, legitimate real-world corporation, technology enterprise, startup, or institution.
+- If purely fictional or unintelligible gibberish, set verified = false.
+
+2. EXPANSIVE CORPORATE PROFILE:
+- Write a large, comprehensive, multi-paragraph description (200-300 words). Detail their primary business model, core flagship products/services, scale, technology stack/architecture, infrastructure, research frontiers (if applicable, e.g. AI/ML/Cloud), and engineering or operational culture.
+- Identify exact headquarters and industry classification.
+
+3. INTERVIEW EVALUATION BENCHMARKS:
+- Describe their exact interview evaluation style (e.g. behavioral rubrics, bar-raiser dynamics, coding/system design standards, case methods, leadership principles).
+- Extract 5-6 core cultural values or corporate leadership principles.
+- Extract 5-6 essential technical competencies or business domain skills.
+
+4. OPEN HIRING ROLES & ACCURATE JOB DESCRIPTIONS:
+- Extract or synthesize 5 to 7 authentic, actual hiring roles representative of this company (e.g. Senior Data Analyst / Product Analytics, Senior Software Engineer, Staff Machine Learning Engineer, Product Manager, Data Engineer, Infrastructure / DevOps Engineer).
+- FOR EACH ROLE: provide roleTitle, category ('Engineering' | 'Data & Analytics' | 'AI & Machine Learning' | 'Product & Strategy' | 'Infrastructure & Security'), level, a brief overview, key responsibilities, requirements, and a complete, realistic, industry-standard sample job description (sampleJd) that a candidate would see on an official job posting.
+- Ensure the Data Analyst role specifically includes real-world analytics responsibilities (SQL, dimensional modeling, KPI dashboards in Tableau/Looker, A/B testing, causal analysis, stakeholder reporting) and not generic software engineering text.
 
 Respond in strict JSON format matching this schema:
 {
   "name": string,
+  "domain": string,
+  "headquarters": string,
   "description": string,
   "industry": string,
   "interviewStyle": string,
   "keyValues": string[],
   "coreTechOrSkills": string[],
-  "verified": boolean
+  "verified": boolean,
+  "availableRoles": [
+    {
+      "roleTitle": string,
+      "category": string,
+      "level": string,
+      "description": string,
+      "responsibilities": string[],
+      "requirements": string[],
+      "sampleJd": string
+    }
+  ]
 }`;
 
   try {
     const rawText = await callGeminiWithCascade({
       contents: prompt,
       config: {
-        systemInstruction: "You are a corporate intelligence and interview preparation verification system.",
+        systemInstruction: "You are an elite corporate intelligence and interview preparation verification system.",
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
             name: { type: Type.STRING },
+            domain: { type: Type.STRING },
+            headquarters: { type: Type.STRING },
             description: { type: Type.STRING },
             industry: { type: Type.STRING },
             interviewStyle: { type: Type.STRING },
             keyValues: { type: Type.ARRAY, items: { type: Type.STRING } },
             coreTechOrSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
-            verified: { type: Type.BOOLEAN }
+            verified: { type: Type.BOOLEAN },
+            availableRoles: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  roleTitle: { type: Type.STRING },
+                  category: { type: Type.STRING },
+                  level: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  responsibilities: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  requirements: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  sampleJd: { type: Type.STRING }
+                },
+                required: ["roleTitle", "category", "description", "responsibilities", "requirements", "sampleJd"]
+              }
+            }
           },
           required: ["name", "description", "industry", "interviewStyle", "keyValues", "coreTechOrSkills", "verified"]
         }
@@ -156,6 +204,7 @@ Respond in strict JSON format matching this schema:
           interviewStyle: "",
           keyValues: [],
           coreTechOrSkills: [],
+          availableRoles: [],
           source: 'not_found',
           verified: false
         };
@@ -163,29 +212,209 @@ Respond in strict JSON format matching this schema:
 
       return {
         name: parsed.name || companyName,
+        domain: parsed.domain || `${companyName.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`,
+        headquarters: parsed.headquarters || 'Global Headquarters',
         description: parsed.description,
         industry: parsed.industry,
         interviewStyle: parsed.interviewStyle,
         keyValues: parsed.keyValues || [],
         coreTechOrSkills: parsed.coreTechOrSkills || [],
+        availableRoles: (parsed.availableRoles || []).map((r: any, idx: number) => ({
+          id: `dyn_role_${idx}_${Date.now()}`,
+          roleTitle: r.roleTitle,
+          category: r.category || 'Engineering',
+          level: r.level || 'Mid-Senior',
+          description: r.description || '',
+          responsibilities: r.responsibilities || [],
+          requirements: r.requirements || [],
+          sampleJd: r.sampleJd || `Role: ${r.roleTitle} at ${parsed.name || companyName}\n\nResponsibilities:\n${(r.responsibilities || []).map((resp: string) => `- ${resp}`).join('\n')}\n\nRequirements:\n${(r.requirements || []).map((req: string) => `- ${req}`).join('\n')}`
+        })),
         source: 'web',
         verified: true
       };
     }
   } catch (error) {
-    // Graceful fallback to verified company heuristics
+    console.warn("Company research error, falling back to heuristics:", error);
   }
 
   // Resilient heuristic profile generation if external API is temporarily busy
   return {
     name: companyName,
-    description: `${companyName} is an active industry organization evaluated for hiring standards.`,
-    industry: 'Technology & Enterprise Business',
-    interviewStyle: 'Rigorous behavioral & domain competencies evaluation using STAR methodology.',
-    keyValues: ['Accountability', 'Technical Rigor', 'High Ownership', 'Customer Impact'],
-    coreTechOrSkills: ['Domain Knowledge', 'Systemic Architecture', 'Clear Communication', 'Data-Driven Problem Solving'],
+    domain: `${companyName.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`,
+    description: `${companyName} is an active, recognized industry enterprise evaluated for technical excellence, operational scale, and structured organizational impact. The company fosters high-standards engineering, data-informed strategy, and collaborative execution across distributed teams.`,
+    industry: 'Technology & Enterprise Business Solutions',
+    headquarters: 'Global Operations',
+    interviewStyle: 'Rigorous competency-based and behavioral evaluations assessing structured problem solving, domain depth, metrics ownership, and STAR method precision.',
+    keyValues: ['Accountability & Ownership', 'Technical Rigor', 'Data-Driven Decision Making', 'Customer Impact', 'Direct Candor'],
+    coreTechOrSkills: ['Domain Knowledge', 'System Architecture', 'Analytical Problem Solving', 'Cross-Functional Execution', 'SQL & Telemetry'],
+    availableRoles: [
+      {
+        id: `fb_role_da_${Date.now()}`,
+        roleTitle: 'Senior Data Analyst — Product & Business Analytics',
+        category: 'Data & Analytics',
+        level: 'Senior',
+        description: `Drive quantitative analytics, KPI tracking, and statistical insights for ${companyName}.`,
+        responsibilities: [
+          'Design and maintain scalable data pipelines and executive dashboards in Tableau, Looker, or Power BI.',
+          'Execute complex SQL queries, cohort analysis, and statistical A/B experimentation readouts.',
+          'Synthesize quantitative findings into clear strategic recommendations for leadership.'
+        ],
+        requirements: [
+          '3+ years of experience in data analytics, SQL, Python/R, and dimensional data modeling.',
+          'Strong command of statistics, experimental design, and business metrics storytelling.'
+        ],
+        sampleJd: `Role: Senior Data Analyst — Product & Business Analytics at ${companyName}
+Location: Hybrid / Remote
+
+About the Role:
+As a Senior Data Analyst at ${companyName}, you will transform complex multi-source data into actionable business intelligence and high-leverage product decisions.
+
+Key Responsibilities:
+- Build and maintain automated data marts, metric frameworks, and executive reporting suites.
+- Design, evaluate, and interpret hypothesis-driven A/B tests and customer behavior funnels.
+- Write high-performance SQL models and conduct deep-dive exploratory data analyses.
+- Present strategic recommendations to cross-functional stakeholders in product, finance, and engineering.
+
+Qualifications:
+- 3+ years of professional analytics experience.
+- Expert-level SQL proficiency and experience with cloud data warehouses (Snowflake, BigQuery, Redshift).
+- Proficiency with Python or R for statistical analysis and visualization.
+- Strong knowledge of statistical significance testing, conversion rate optimization, and executive communication.`
+      },
+      {
+        id: `fb_role_swe_${Date.now()}`,
+        roleTitle: 'Senior Software Engineer — Platform & Core Systems',
+        category: 'Engineering',
+        level: 'Senior',
+        description: `Architect and scale high-availability backend services and APIs at ${companyName}.`,
+        responsibilities: [
+          'Design, build, and maintain production services, distributed databases, and APIs.',
+          'Lead technical architecture decisions and champion code craft, testing, and operational excellence.'
+        ],
+        requirements: [
+          '5+ years of software engineering experience with modern distributed systems.',
+          'Strong proficiency in TypeScript, Python, Java, or Go.'
+        ],
+        sampleJd: `Role: Senior Software Engineer — Platform & Core Systems at ${companyName}
+Location: Hybrid / Remote
+
+Key Responsibilities:
+- Design, build, and operate high-scale distributed systems and developer-facing APIs.
+- Collaborate cross-functionally with product, design, and infrastructure teams.
+- Mentor junior engineers and uphold rigorous code review and testing standards.
+
+Requirements:
+- 5+ years of backend or full-stack software development experience.
+- Strong proficiency in modern programming languages and relational/NoSQL databases.`
+      }
+    ],
     source: 'web',
     verified: true
+  };
+}
+
+/**
+ * Generate Authentic Job Description for Any Custom Role at a Company
+ */
+export async function generateRoleDescriptionWithGemini(
+  companyName: string,
+  roleTitle: string,
+  companyProfile?: Partial<CompanyProfile>
+): Promise<{ roleTitle: string; category: string; description: string; sampleJd: string }> {
+  const prompt = `Generate a realistic, comprehensive, and authentic job posting and job description for the position "${roleTitle}" at the company "${companyName}".
+
+Company Context:
+Industry: ${companyProfile?.industry || 'Technology / Enterprise'}
+Culture & Style: ${companyProfile?.interviewStyle || 'High-performance engineering and structured problem solving'}
+
+Requirements:
+1. Write a complete, professional, realistic Job Description formatted with:
+   - About the Role & Team
+   - Key Responsibilities (5-6 specific, authentic bullet points)
+   - Minimum Qualifications / Requirements (4-5 realistic bullet points)
+   - Preferred Qualifications (3 bullet points)
+2. If this is a Data Analyst / Business Intelligence / Analytics role, ensure it specifically highlights SQL, data modeling, BI dashboards (Tableau/Looker/Power BI), A/B testing, cohort retention, and business impact.
+3. Categorize the role into one of: 'Engineering', 'Data & Analytics', 'AI & Machine Learning', 'Product & Strategy', 'Infrastructure & Security', 'Other'.
+
+Respond in strict JSON:
+{
+  "roleTitle": string,
+  "category": string,
+  "description": string,
+  "sampleJd": string
+}`;
+
+  try {
+    const rawText = await callGeminiWithCascade({
+      contents: prompt,
+      config: {
+        systemInstruction: "You are an enterprise talent acquisition director and job description specialist.",
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            roleTitle: { type: Type.STRING },
+            category: { type: Type.STRING },
+            description: { type: Type.STRING },
+            sampleJd: { type: Type.STRING }
+          },
+          required: ["roleTitle", "category", "description", "sampleJd"]
+        }
+      }
+    });
+
+    if (rawText) {
+      return JSON.parse(cleanJsonText(rawText));
+    }
+  } catch (err) {
+    console.warn("Failed to generate role description via Gemini:", err);
+  }
+
+  // Fallback
+  const isDataRole = /data|analyst|analytics|bi|intelligence|scientist/i.test(roleTitle);
+  if (isDataRole) {
+    return {
+      roleTitle,
+      category: 'Data & Analytics',
+      description: `Lead data analytics, business intelligence modeling, and quantitative decision making at ${companyName}.`,
+      sampleJd: `Role: ${roleTitle} at ${companyName}
+Location: Remote / Hybrid
+
+About the Role:
+As a ${roleTitle} at ${companyName}, you will leverage data to uncover insights, optimize product funnels, and guide strategic decision-making across leadership.
+
+Key Responsibilities:
+- Design, build, and maintain dimensional data models and automated dashboards in Tableau, Looker, or Power BI.
+- Write complex SQL queries and build ETL data pipelines on cloud data warehouses (Snowflake, BigQuery, Redshift).
+- Formulate hypothesis-driven A/B experiment designs, conduct cohort retention analysis, and evaluate metric trade-offs.
+- Translate intricate analytical findings into clear, structured executive narratives and strategic recommendations.
+
+Qualifications:
+- 3+ years of experience in data analytics, business intelligence, or quantitative analysis.
+- Expert-level SQL proficiency (window functions, CTEs, query optimization) and Python or R for statistical analysis.
+- Strong grasp of statistics, experimental design, and metrics storytelling.`
+    };
+  }
+
+  return {
+    roleTitle,
+    category: 'Engineering',
+    description: `Drive technical architecture, scalable development, and operational excellence as a ${roleTitle} at ${companyName}.`,
+    sampleJd: `Role: ${roleTitle} at ${companyName}
+Location: Remote / Hybrid
+
+About the Role:
+We are looking for a ${roleTitle} to join our team at ${companyName} to build scalable, high-availability software solutions and collaborate across multidisciplinary product teams.
+
+Key Responsibilities:
+- Architect, build, and maintain production applications and high-throughput backend services.
+- Collaborate cross-functionally with Product, UX, and Infrastructure leads to deliver intuitive tools.
+- Champion engineering rigor, automated testing, code reviews, and operational incident response.
+
+Qualifications:
+- 4+ years of relevant software engineering or technical experience.
+- Strong expertise with modern system design, web frameworks, and cloud infrastructure.
+- Clear, structured communication and collaborative problem-solving skills.`
   };
 }
 
@@ -302,18 +531,37 @@ Task:
   };
 }
 
+const TRACK_QUESTION_COUNT_MAP: Record<CandidateTrack, number> = {
+  undergraduate: 2,     // 2 Focused campus/academic questions
+  postgraduate_mba: 3,  // 3 Strategic/Leadership/ROI questions
+  research_phd: 4,      // 4 Scientific/defense/computational questions
+  experienced_pro: 4    // 4 High-stakes systems/incident/leadership questions
+};
+
 /**
- * Generate Tailored Interview Questions
+ * Generate Tailored Interview Questions Calibrated to Candidate Education Progression
  */
 export async function generateInterviewQuestions(
   roleTitle: string,
   jobDescription: string,
   companyProfile: CompanyProfile,
   resumeText: string,
-  focusArea?: string
+  focusArea?: string,
+  candidateTrack: CandidateTrack = 'undergraduate'
 ): Promise<InterviewQuestion[]> {
-  const prompt = `Generate 3 realistic, rigorous interview questions for a candidate interviewing for "${roleTitle}" at "${companyProfile.name}".
-Focus Area requested: ${focusArea || "Comprehensive (Behavioral, Technical Architecture, Leadership & Values)"}.
+  const targetQuestionCount = TRACK_QUESTION_COUNT_MAP[candidateTrack] || 3;
+
+  const trackInstructions = {
+    undergraduate: "Candidate is an Undergraduate / College student (Progression Level 1) applying for an entry-level position, campus placement, or internship. Focus on academic coursework, capstone/hackathon projects, collaborative teamwork, core fundamentals, and learning agility.",
+    postgraduate_mba: "Candidate is a Postgraduate / MBA student (Progression Level 2) applying for a leadership development track, product management, or senior strategic role. Focus on business acumen, strategic prioritization, ROI trade-offs, cross-functional leadership, and market intuition.",
+    research_phd: "Candidate is a Research / PhD / Postdoctoral student (Progression Level 3) applying for a Research Scientist or R&D lab role. Focus on experimental rigor, algorithmic proofs, handling contradictory data/experiments, compute-constrained translation, and paper defense.",
+    experienced_pro: "Candidate is an Experienced Professional (Progression Level 4) applying for a mid/senior role. Focus on distributed systems architecture, high-stakes incident handling, architectural disputes, and cross-organization scaling/mentorship."
+  }[candidateTrack] || "Candidate is applying for a technical role.";
+
+  const prompt = `Generate EXACTLY ${targetQuestionCount} realistic, rigorous interview questions for a candidate interviewing for "${roleTitle}" at "${companyProfile.name}".
+Education Progression / Candidate Status: ${candidateTrack.toUpperCase()} (${trackInstructions}).
+Required Number of Questions: EXACTLY ${targetQuestionCount} questions (calibrated for this educational progression stage).
+Focus Area requested: ${focusArea || "Comprehensive (Behavioral, Technical/Domain, Leadership & Values)"}.
 
 Job Description context:
 """
@@ -325,8 +573,8 @@ Industry: ${companyProfile.industry}
 Culture/Interview Style: ${companyProfile.interviewStyle}
 Key Values: ${companyProfile.keyValues.join(", ")}
 
-Generate 3 questions designed to test the candidate using the STAR methodology (Situation, Task, Action, Result).
-Make questions demanding and authentic to real senior bar-raiser interviewers.`;
+Generate EXACTLY ${targetQuestionCount} questions designed to test the candidate using the STAR methodology (Situation, Task, Action, Result).
+Make questions demanding, authentic, and tailored specifically to the ${candidateTrack} track with exactly ${targetQuestionCount} items in the JSON array.`;
 
   try {
     const rawText = await callGeminiWithCascade({
@@ -362,11 +610,11 @@ Make questions demanding and authentic to real senior bar-raiser interviewers.`;
     if (rawText) {
       const parsed = JSON.parse(cleanJsonText(rawText));
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.slice(0, 3).map((q: any, idx: number) => ({
+        return parsed.slice(0, targetQuestionCount).map((q: any, idx: number) => ({
           id: `q${idx + 1}`,
           questionNumber: idx + 1,
-          totalQuestions: 3,
-          category: q.category || (idx === 0 ? "behavioral" : idx === 1 ? "situational" : "technical"),
+          totalQuestions: targetQuestionCount,
+          category: q.category || (idx === 0 ? "behavioral" : idx === 1 ? "situational" : idx === 2 ? "technical" : "leadership"),
           questionText: q.questionText,
           contextOrGoal: q.contextOrGoal,
           suggestedStarHints: q.suggestedStarHints
@@ -377,51 +625,7 @@ Make questions demanding and authentic to real senior bar-raiser interviewers.`;
     // Graceful fallback to tailored question rubric
   }
 
-  // High quality curated questions tailored to target company & role
-  return [
-    {
-      id: "q1",
-      questionNumber: 1,
-      totalQuestions: 3,
-      category: "behavioral",
-      questionText: `Can you describe a high-stakes project at your previous role where you had to manage competing technical priorities under a strict deadline for ${roleTitle}?`,
-      contextOrGoal: `Evaluates Situation, Task, Action, Result with focus on prioritization and measurable delivery at ${companyProfile.name}.`,
-      suggestedStarHints: {
-        situation: "Set the context: project scope, timeline constraints, and key stakeholders.",
-        task: "State your specific responsibility versus broader team ownership.",
-        action: "Detail step-by-step technical and triage prioritization decisions made.",
-        result: "Quantify the final delivery impact (latency, uptime, revenue, or on-time delivery metric)."
-      }
-    },
-    {
-      id: "q2",
-      questionNumber: 2,
-      totalQuestions: 3,
-      category: "situational",
-      questionText: `Tell me about a time you strongly disagreed with an architectural or product decision chosen by a lead or stakeholder at ${companyProfile.name}. How did you handle the debate?`,
-      contextOrGoal: `Probes data-driven persuasion, professional disagreement, and alignment with ${companyProfile.keyValues[0] || 'core engineering values'}.`,
-      suggestedStarHints: {
-        situation: "Describe the architectural or product disagreement clearly.",
-        task: "Your objective in seeking the optimal business or system outcome.",
-        action: "How you presented benchmarks, prototypes, or objective criteria without friction.",
-        result: "The final consensus reached and measurable project outcome."
-      }
-    },
-    {
-      id: "q3",
-      questionNumber: 3,
-      totalQuestions: 3,
-      category: "technical",
-      questionText: `Looking at the systems requirements for ${roleTitle} at ${companyProfile.name}, describe how you would diagnose and mitigate a severe latency bottleneck in a distributed production environment.`,
-      contextOrGoal: `Assesses operational rigor, telemetry analysis, root cause isolation, and calm execution under pressure.`,
-      suggestedStarHints: {
-        situation: "Incident context, traffic volume, and blast radius.",
-        task: "Immediate customer safeguard and mitigation responsibility.",
-        action: "Profiling protocol, query optimization, caching strategies, and rollback steps.",
-        result: "Measured latency reduction (ms), recovery time, and post-mortem safeguards."
-      }
-    }
-  ];
+  return getFallbackInterviewQuestions(companyProfile.name, roleTitle, focusArea, candidateTrack);
 }
 
 /**
@@ -794,3 +998,84 @@ Persona Directives:
     answers
   };
 }
+
+/**
+ * Transcribe Recorded Voice Audio with Gemini Multi-Modal Speech Recognition
+ */
+export async function transcribeAudioWithGemini(
+  base64Audio: string,
+  mimeType: string = 'audio/webm',
+  language: LanguageCode = 'en'
+): Promise<{ transcript: string; wordCount: number }> {
+  const languageNames: Record<LanguageCode, string> = {
+    en: 'English',
+    hi: 'Hindi (हिन्दी / Hinglish)',
+    bn: 'Bengali (বাংলা)'
+  };
+  const targetLanguage = languageNames[language] || 'English';
+
+  const promptText = `Listen to this spoken interview candidate response recording carefully.
+Task: Transcribe the candidate's spoken speech verbatim word-for-word in ${targetLanguage}.
+Rules:
+- Capture all spoken words, technical terms, company names, numbers, and STAR explanations accurately.
+- Return ONLY the exact transcribed words as clean plain text.
+- Do NOT output speaker prefixes (like "Candidate:", "Speaker:"), timestamps, notes, commentary, quotes, or markdown formatting.`;
+
+  // Clean base64 if data URI prefix was attached
+  const cleanBase64 = base64Audio.replace(/^data:[^;]+;base64,/, '').trim();
+
+  if (!cleanBase64 || cleanBase64.length < 50) {
+    return { transcript: '', wordCount: 0 };
+  }
+
+  // Normalize audio mime type for Gemini
+  let normalizedMime = mimeType.split(';')[0].trim().toLowerCase();
+  if (!normalizedMime || normalizedMime === 'audio/webm') {
+    normalizedMime = 'audio/webm';
+  }
+
+  const ai = getAiClient();
+  const transcriptionModels = [
+    'gemini-2.5-flash',
+    'gemini-2.5-pro'
+  ];
+
+  for (const model of transcriptionModels) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                mimeType: normalizedMime,
+                data: cleanBase64
+              }
+            },
+            {
+              text: promptText
+            }
+          ]
+        }
+      });
+
+      const text = response.text;
+      if (text && text.trim().length > 0) {
+        const clean = text.trim().replace(/^["']|["']$/g, '');
+        const words = clean.split(/\s+/).filter(Boolean);
+        return {
+          transcript: clean,
+          wordCount: words.length
+        };
+      }
+    } catch (err: any) {
+      console.warn(`Audio transcription attempt with model ${model} failed:`, err?.message || err);
+    }
+  }
+
+  return {
+    transcript: '',
+    wordCount: 0
+  };
+}
+

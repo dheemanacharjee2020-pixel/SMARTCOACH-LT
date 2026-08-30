@@ -3,38 +3,36 @@ import {
   UserProfile, 
   CompanyProfile, 
   SessionEvaluation,
-  AtsResult 
+  CandidateTrack
 } from '../types';
+import { safeFetchJson } from '../utils/api';
+import { CANDIDATE_TRACKS } from '../utils/tracks';
 import { HistoryTrendsView } from './HistoryTrendsView';
 import { 
   Play, 
   TrendingUp, 
   Award, 
   Building2, 
-  CheckCircle2, 
-  AlertTriangle, 
-  Clock, 
-  Sparkles, 
-  FileText, 
   BarChart3, 
-  Mic, 
-  ChevronRight, 
-  Layers, 
-  Volume2, 
-  Zap, 
   Target, 
-  Bot, 
-  RefreshCw, 
-  ArrowUpRight,
-  ShieldCheck,
-  Compass,
-  ArrowRight
+  ArrowRight,
+  GraduationCap,
+  Briefcase,
+  FlaskConical,
+  Code2,
+  CheckCircle2,
+  Volume2,
+  Clock,
+  Sparkles,
+  ChevronRight
 } from 'lucide-react';
 
 interface HomeDashboardViewProps {
   currentUser: UserProfile | null;
   targetCompany: CompanyProfile | null;
   roleTitle: string;
+  candidateTrack?: CandidateTrack;
+  onSelectCandidateTrack?: (track: CandidateTrack) => void;
   onStartInterview: () => void;
   onOpenAtsCheck: () => void;
   onOpenPrep: () => void;
@@ -47,6 +45,8 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({
   currentUser,
   targetCompany,
   roleTitle,
+  candidateTrack = 'undergraduate',
+  onSelectCandidateTrack,
   onStartInterview,
   onOpenAtsCheck,
   onOpenPrep,
@@ -58,23 +58,28 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({
   const [sessionsHistory, setSessionsHistory] = useState<SessionEvaluation[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
 
-  // Fetch all historical sessions for statistics
+  // Fetch all historical sessions for the current user
   useEffect(() => {
     const fetchHistory = async () => {
       setIsLoadingHistory(true);
       try {
         const query = currentUser?.id ? `?userId=${encodeURIComponent(currentUser.id)}` : '';
-        const res = await fetch(`/api/interview/history${query}`);
-        const data = await res.json();
-        if (data.success && Array.isArray(data.sessions) && data.sessions.length > 0) {
+        const { success, data } = await safeFetchJson<{ success: boolean; sessions?: SessionEvaluation[] }>(
+          `/api/interview/history${query}`
+        );
+        if (success && Array.isArray(data?.sessions) && data.sessions.length > 0) {
           setSessionsHistory(data.sessions);
         } else if (latestEvaluation) {
           setSessionsHistory([latestEvaluation]);
+        } else {
+          setSessionsHistory([]);
         }
       } catch (err) {
         console.warn('Failed to load session history:', err);
         if (latestEvaluation) {
           setSessionsHistory([latestEvaluation]);
+        } else {
+          setSessionsHistory([]);
         }
       } finally {
         setIsLoadingHistory(false);
@@ -84,69 +89,92 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({
     fetchHistory();
   }, [currentUser, latestEvaluation]);
 
-  // Derived metrics
-  const latestSession = latestEvaluation || sessionsHistory[sessionsHistory.length - 1];
+  const hasCompletedInterview = sessionsHistory.length > 0 || latestEvaluation !== null;
+  const latestSession = hasCompletedInterview
+    ? (latestEvaluation || sessionsHistory[sessionsHistory.length - 1])
+    : null;
   const totalSessionsCount = sessionsHistory.length;
 
-  const averageStarScore = sessionsHistory.length > 0
+  const averageStarScore = hasCompletedInterview && totalSessionsCount > 0
     ? Math.round(
         sessionsHistory.reduce(
-          (acc, s) => acc + (s.starCompletenessScore || 70), 
+          (acc, s) => acc + (s.starCompletenessScore ?? 
+            (s.starCoverageMetrics 
+              ? Math.round(((s.starCoverageMetrics.situationScore || 0) + (s.starCoverageMetrics.taskScore || 0) + (s.starCoverageMetrics.actionScore || 0) + (s.starCoverageMetrics.resultScore || 0)) / 4)
+              : 0)), 
           0
-        ) / sessionsHistory.length
+        ) / totalSessionsCount
       )
-    : 78;
+    : (latestSession?.starCompletenessScore ?? null);
 
-  const latestOfferProb = latestSession?.successLikelihood?.percentage ?? 
-    latestSession?.successProbabilityPct ?? 76;
+  const latestOfferProb = latestSession
+    ? (latestSession.successLikelihood?.percentage ?? latestSession.successProbabilityPct ?? null)
+    : null;
     
-  const averageWpm = sessionsHistory.length > 0
+  const averageWpm = hasCompletedInterview && totalSessionsCount > 0
     ? Math.round(
         sessionsHistory.reduce(
-          (acc, s) => acc + (s.speechTrends?.averageWpm || 140), 
+          (acc, s) => acc + (s.speechTrends?.averageWpm || 
+            (s.answers && s.answers.length > 0 
+              ? Math.round(s.answers.reduce((aAcc, a) => aAcc + (a.speechMetrics?.wpm || 0), 0) / s.answers.length) 
+              : 0)), 
           0
-        ) / sessionsHistory.length
+        ) / totalSessionsCount
       )
-    : 138;
+    : (latestSession?.speechTrends?.averageWpm ?? null);
+
+  const getTrackIcon = (id: CandidateTrack) => {
+    switch (id) {
+      case 'undergraduate':
+        return GraduationCap;
+      case 'postgraduate_mba':
+        return Briefcase;
+      case 'research_phd':
+        return FlaskConical;
+      case 'experienced_pro':
+      default:
+        return Code2;
+    }
+  };
+
+  const activeTrackMeta = CANDIDATE_TRACKS.find(t => t.id === candidateTrack) || CANDIDATE_TRACKS[0];
 
   return (
-    <div id="home-dashboard-container" className="max-w-6xl mx-auto py-5 px-4 space-y-5 font-sans animate-in fade-in duration-200">
-      {/* Top Welcome & Quick Launch Hero Banner */}
-      <div className="bg-gradient-to-r from-[#161B29] via-[#111827] to-[#161B29] border border-slate-800 rounded-lg p-5 shadow-lg relative overflow-hidden">
-        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-          <div className="space-y-1.5 max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded bg-blue-900/30 border border-blue-500/40 text-blue-400 text-[10px] font-mono font-bold uppercase tracking-wider">
-              <Compass className="w-3 h-3" />
-              <span>Candidate Readiness Center</span>
-              <span className="text-slate-500">•</span>
-              <span>{currentUser?.name || 'Executive Candidate'}</span>
+    <div id="home-dashboard-container" className="max-w-5xl mx-auto py-6 px-4 space-y-6 font-sans">
+      
+      {/* 1. Clean Candidate & Role Header */}
+      <div className="bg-[#161B29] border border-slate-800 rounded-lg p-5 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-mono font-bold text-blue-400 uppercase tracking-wide">
+                {currentUser?.name || 'Candidate Dashboard'}
+              </span>
+              <span className="text-slate-600">•</span>
+              <span className="text-xs font-mono text-slate-400">
+                Target: <strong className="text-slate-200">{targetCompany?.name || 'Stripe'}</strong> ({roleTitle || 'Software Engineer'})
+              </span>
             </div>
-            <h1 className="text-xl md:text-2xl font-bold text-slate-100 tracking-tight flex items-center gap-2">
-              <span>{roleTitle}</span>
-              <span className="text-slate-500 font-normal">at</span>
-              <span className="text-blue-400">{targetCompany?.name || 'Target Enterprise'}</span>
+            <h1 className="text-xl md:text-2xl font-bold text-slate-100 tracking-tight">
+              Interview Readiness Center
             </h1>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Real-time calibration dashboard tracking behavioral STAR precision, speech acoustics, and rubric alignment across all completed interview drills.
-            </p>
           </div>
 
-          {/* Primary Action Button: Launch Dedicated Interview Session */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full lg:w-auto shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               id="btn-launch-interview-room"
               onClick={onStartInterview}
-              className="px-5 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider rounded flex items-center justify-center gap-2.5 cursor-pointer shadow-lg hover:shadow-blue-500/20 active:scale-98 transition-all"
+              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider rounded flex items-center gap-2 cursor-pointer shadow transition-all active:scale-98"
             >
-              <Play className="w-4 h-4 fill-current" />
-              <span>Launch Live Interview Room</span>
-              <ArrowRight className="w-4 h-4" />
+              <Play className="w-3.5 h-3.5 fill-current" />
+              <span>{hasCompletedInterview ? 'Launch Interview Drill' : 'Start Practice Drill'}</span>
+              <ArrowRight className="w-3.5 h-3.5" />
             </button>
 
             <button
               id="btn-quick-ats"
               onClick={onOpenAtsCheck}
-              className="px-3.5 py-3 bg-[#0B0F1A] hover:bg-slate-800 text-slate-300 border border-slate-800 hover:border-slate-700 font-mono text-xs font-bold uppercase tracking-wider rounded flex items-center justify-center gap-2 cursor-pointer transition-colors"
+              className="px-3.5 py-2.5 bg-[#0B0F1A] hover:bg-slate-800 text-slate-300 border border-slate-800 rounded font-mono text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-colors"
               title="Pre-scan resume against current job description"
             >
               <BarChart3 className="w-3.5 h-3.5 text-blue-400" />
@@ -155,149 +183,163 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({
           </div>
         </div>
 
-        {/* Sub-Tabs Selector: Dashboard Overview vs Detailed Statistics */}
-        <div className="mt-5 pt-3 border-t border-slate-800 flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <button
-              id="tab-btn-overview"
-              onClick={() => setActiveTab('overview')}
-              className={`px-4 py-1.5 rounded text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-all ${
-                activeTab === 'overview'
-                  ? 'bg-blue-600/30 text-blue-300 border border-blue-500/50 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-              }`}
-            >
-              <Award className="w-3.5 h-3.5" />
-              <span>Dashboard Overview</span>
-            </button>
+        {/* Candidate Track Quick Switcher */}
+        <div className="mt-4 pt-3.5 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[11px] font-mono text-slate-400 uppercase mr-1">Track:</span>
+            {CANDIDATE_TRACKS.map((t) => {
+              const Icon = getTrackIcon(t.id);
+              const isSelected = candidateTrack === t.id;
 
-            <button
-              id="tab-btn-statistics"
-              onClick={() => setActiveTab('statistics')}
-              className={`px-4 py-1.5 rounded text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-all ${
-                activeTab === 'statistics'
-                  ? 'bg-blue-600/30 text-blue-300 border border-blue-500/50 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-              }`}
-            >
-              <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
-              <span>Detailed Statistics & Trends</span>
-              <span className="text-[10px] font-mono bg-blue-900/40 text-blue-300 px-1.5 py-0.2 rounded border border-blue-700/50">
-                {totalSessionsCount}
-              </span>
-            </button>
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => onSelectCandidateTrack && onSelectCandidateTrack(t.id)}
+                  className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1.5 cursor-pointer transition-colors ${
+                    isSelected
+                      ? 'bg-blue-600 text-white font-semibold shadow-sm'
+                      : 'bg-[#0B0F1A] text-slate-400 hover:text-slate-200 border border-slate-800'
+                  }`}
+                  title={t.description}
+                >
+                  <Icon className="w-3 h-3" />
+                  <span>{t.label.split('/')[0].trim()}</span>
+                </button>
+              );
+            })}
           </div>
 
-          <div className="text-[11px] font-mono text-slate-400 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-            <span>Target: {targetCompany?.interviewStyle || 'Rigorous STAR Behavioral'}</span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setActiveTab('overview')}
+              className={`px-3 py-1 rounded text-xs font-mono font-bold uppercase transition-colors ${
+                activeTab === 'overview'
+                  ? 'text-blue-400 border-b-2 border-blue-500'
+                  : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              Overview
+            </button>
+            <button
+              onClick={() => setActiveTab('statistics')}
+              className={`px-3 py-1 rounded text-xs font-mono font-bold uppercase transition-colors ${
+                activeTab === 'statistics'
+                  ? 'text-blue-400 border-b-2 border-blue-500'
+                  : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              Trends & Stats ({totalSessionsCount})
+            </button>
           </div>
         </div>
       </div>
 
-      {/* RENDER VIEW 1: DASHBOARD OVERVIEW */}
+      {/* 2. TAB CONTENT: OVERVIEW */}
       {activeTab === 'overview' && (
-        <div className="space-y-5 animate-in fade-in duration-150">
-          {/* Quick Metrics Summary Cards */}
+        <div className="space-y-6 animate-in fade-in duration-150">
+          
+          {/* Key Metrics 4-Box Row */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {/* Offer Likelihood */}
             <div className="bg-[#161B29] border border-slate-800 rounded p-3.5 space-y-1">
-              <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 uppercase font-bold">
+              <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 uppercase">
                 <span>Offer Likelihood</span>
-                <Award className="w-3.5 h-3.5 text-green-400" />
+                <Award className={`w-3.5 h-3.5 ${hasCompletedInterview ? 'text-green-400' : 'text-slate-600'}`} />
               </div>
               <div className="flex items-baseline gap-1.5">
-                <span className="text-2xl font-bold font-mono text-green-400">{latestOfferProb}%</span>
-                <span className="text-[10px] font-mono text-slate-400">±5% model</span>
+                <span className={`text-2xl font-bold font-mono ${hasCompletedInterview && latestOfferProb !== null ? 'text-green-400' : 'text-slate-600'}`}>
+                  {hasCompletedInterview && latestOfferProb !== null ? `${latestOfferProb}%` : '—'}
+                </span>
+                <span className="text-[10px] font-mono text-slate-500">
+                  {hasCompletedInterview ? 'calibrated' : 'pending drill'}
+                </span>
               </div>
-              <span className="text-[10px] text-slate-400 block truncate">
-                Based on verified {targetCompany?.name || 'corporate'} rubrics
-              </span>
             </div>
 
             {/* STAR Completeness */}
             <div className="bg-[#161B29] border border-slate-800 rounded p-3.5 space-y-1">
-              <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 uppercase font-bold">
-                <span>Avg STAR Completeness</span>
-                <Target className="w-3.5 h-3.5 text-blue-400" />
+              <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 uppercase">
+                <span>STAR Score</span>
+                <Target className={`w-3.5 h-3.5 ${hasCompletedInterview ? 'text-blue-400' : 'text-slate-600'}`} />
               </div>
               <div className="flex items-baseline gap-1.5">
-                <span className="text-2xl font-bold font-mono text-blue-400">{averageStarScore}%</span>
-                <span className="text-[10px] font-mono text-green-400 font-bold">+16% net</span>
+                <span className={`text-2xl font-bold font-mono ${hasCompletedInterview && averageStarScore !== null ? 'text-blue-400' : 'text-slate-600'}`}>
+                  {hasCompletedInterview && averageStarScore !== null ? `${averageStarScore}%` : '—'}
+                </span>
+                <span className="text-[10px] font-mono text-slate-500">
+                  {hasCompletedInterview ? 'average' : 'pending drill'}
+                </span>
               </div>
-              <span className="text-[10px] text-slate-400 block truncate">
-                Strong in Action, improving in Task
-              </span>
             </div>
 
-            {/* Speech Delivery Pace */}
+            {/* Speech Pace */}
             <div className="bg-[#161B29] border border-slate-800 rounded p-3.5 space-y-1">
-              <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 uppercase font-bold">
-                <span>Average Speech Pace</span>
-                <Volume2 className="w-3.5 h-3.5 text-yellow-400" />
+              <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 uppercase">
+                <span>Speech Pace</span>
+                <Volume2 className={`w-3.5 h-3.5 ${hasCompletedInterview ? 'text-amber-400' : 'text-slate-600'}`} />
               </div>
               <div className="flex items-baseline gap-1.5">
-                <span className="text-2xl font-bold font-mono text-yellow-400">{averageWpm}</span>
-                <span className="text-[10px] font-mono text-green-400 uppercase font-bold">Optimal</span>
+                <span className={`text-2xl font-bold font-mono ${hasCompletedInterview && averageWpm !== null ? 'text-amber-400' : 'text-slate-600'}`}>
+                  {hasCompletedInterview && averageWpm !== null ? `${averageWpm}` : '—'}
+                </span>
+                <span className="text-[10px] font-mono text-slate-500">
+                  {hasCompletedInterview ? 'WPM' : 'pending drill'}
+                </span>
               </div>
-              <span className="text-[10px] text-slate-400 block truncate">
-                Target: 125-145 Words / Minute
-              </span>
             </div>
 
-            {/* Completed Calibrated Drills */}
+            {/* Drills Completed */}
             <div className="bg-[#161B29] border border-slate-800 rounded p-3.5 space-y-1">
-              <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 uppercase font-bold">
-                <span>Calibrated Drills</span>
-                <Layers className="w-3.5 h-3.5 text-purple-400" />
+              <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 uppercase">
+                <span>Drills Logged</span>
+                <CheckCircle2 className={`w-3.5 h-3.5 ${hasCompletedInterview ? 'text-purple-400' : 'text-slate-600'}`} />
               </div>
               <div className="flex items-baseline gap-1.5">
-                <span className="text-2xl font-bold font-mono text-purple-400">{totalSessionsCount}</span>
-                <span className="text-[10px] font-mono text-slate-400">sessions saved</span>
+                <span className={`text-2xl font-bold font-mono ${hasCompletedInterview ? 'text-purple-400' : 'text-slate-500'}`}>
+                  {totalSessionsCount}
+                </span>
+                <span className="text-[10px] font-mono text-slate-500">
+                  sessions
+                </span>
               </div>
-              <span className="text-[10px] text-slate-400 block truncate">
-                Tracked across target companies
-              </span>
             </div>
           </div>
 
-          {/* 2-Column Core Layout: Target Intel + Pre-Interview Reading Card */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Target Company Intel Card */}
-            <div className="bg-[#161B29] border border-slate-800 rounded p-4 space-y-3 lg:col-span-1">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
-                <h3 className="text-xs font-mono font-bold text-slate-200 uppercase flex items-center gap-1.5 tracking-wider">
+          {/* Core Content Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            
+            {/* Left: Target Focus & Calibration Dossier */}
+            <div className="bg-[#161B29] border border-slate-800 rounded-lg p-4 space-y-3.5 md:col-span-1">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <h2 className="text-xs font-mono font-bold text-slate-200 uppercase flex items-center gap-1.5">
                   <Building2 className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Target Company Profile</span>
-                </h3>
+                  <span>Target Dossier</span>
+                </h2>
                 <button
                   onClick={onOpenPrep}
                   className="text-[10px] font-mono text-blue-400 hover:text-blue-300 cursor-pointer"
                 >
-                  Change Target
+                  Change Role
                 </button>
               </div>
 
               <div className="space-y-2 text-xs">
                 <div>
-                  <span className="text-[10px] font-mono text-slate-500 uppercase block">Company</span>
-                  <p className="font-bold text-slate-200">{targetCompany?.name || 'Stripe'}</p>
+                  <span className="text-[10px] font-mono text-slate-500 uppercase block">Company & Role</span>
+                  <p className="font-bold text-slate-200">{targetCompany?.name || 'Stripe'} • {roleTitle || 'Software Engineer'}</p>
                 </div>
 
                 <div>
-                  <span className="text-[10px] font-mono text-slate-500 uppercase block">Interview Bar</span>
-                  <p className="text-slate-300 leading-relaxed text-[11px]">{targetCompany?.interviewStyle || 'Rigorous STAR behavioral & distributed systems.'}</p>
+                  <span className="text-[10px] font-mono text-slate-500 uppercase block">Career Stage Track</span>
+                  <p className="text-slate-300 text-[11px] font-medium">{activeTrackMeta.label}</p>
                 </div>
 
                 <div>
-                  <span className="text-[10px] font-mono text-slate-500 uppercase block mb-1">Key Value Rubrics</span>
-                  <div className="flex flex-wrap gap-1">
-                    {(targetCompany?.keyValues || ['Users First', 'High Velocity', 'Meticulous Craft']).map((val, idx) => (
-                      <span key={idx} className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#0B0F1A] border border-slate-800 text-slate-300">
-                        {val}
-                      </span>
-                    ))}
-                  </div>
+                  <span className="text-[10px] font-mono text-slate-500 uppercase block">Evaluation Focus</span>
+                  <p className="text-slate-400 text-[11px] leading-relaxed">
+                    {activeTrackMeta.targetFocus}
+                  </p>
                 </div>
 
                 <div className="pt-2 border-t border-slate-800">
@@ -306,76 +348,38 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({
                     className="w-full py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 rounded text-xs font-mono font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
                   >
                     <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>Start {targetCompany?.name || 'Target'} Interview</span>
+                    <span>Launch {activeTrackMeta.badge} Drill</span>
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* Critical Pre-Interview Reminder & Improvement Checklist */}
-            <div className="bg-[#161B29] border border-yellow-500/40 rounded p-4 space-y-3 lg:col-span-2">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
-                <h3 className="text-xs font-mono font-bold text-yellow-400 uppercase flex items-center gap-1.5 tracking-wider">
-                  <AlertTriangle className="w-3.5 h-3.5 text-yellow-400" />
-                  <span>Pre-Interview Focus Checklist (Review 10 Mins Prior)</span>
-                </h3>
-                <span className="text-[10px] font-mono text-yellow-400/80 bg-yellow-950/30 px-2 py-0.5 rounded border border-yellow-900/40">
-                  Demanding Coach Notes
+            {/* Right: Coach Focus Advice (if completed session) OR STAR Method Standards (clean initial state) */}
+            <div className="bg-[#161B29] border border-slate-800 rounded-lg p-4 space-y-3.5 md:col-span-2">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <h2 className="text-xs font-mono font-bold text-slate-200 uppercase flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                  <span>{hasCompletedInterview ? 'AI Coach Action Items' : 'STAR Method Evaluation Criteria'}</span>
+                </h2>
+                <span className="text-[10px] font-mono text-slate-500">
+                  {hasCompletedInterview ? 'Personalized Focus' : 'Rubric Standards'}
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {(latestSession?.topImprovementAreas || [
-                  {
-                    title: 'Quantify baseline SLA & latency improvements',
-                    impact: 'Critical',
-                    starStage: 'Result',
-                    actionableAdvice: 'State exact numbers and percentages in Result rather than generic statements.'
-                  },
-                  {
-                    title: 'Establish task constraints & ownership boundary',
-                    impact: 'High',
-                    starStage: 'Task',
-                    actionableAdvice: 'Explain deadlines, stakeholder pressure, and SLA commitments upfront.'
-                  },
-                  {
-                    title: 'Maintain steady 130-145 WPM cadence',
-                    impact: 'Medium',
-                    starStage: 'Speech Delivery',
-                    actionableAdvice: 'Avoid rushing under technical questioning; take 1-second strategic pauses.'
-                  },
-                  {
-                    title: 'Eliminate filler words ("like", "you know")',
-                    impact: 'Medium',
-                    starStage: 'Speech Delivery',
-                    actionableAdvice: 'Substitute pauses for verbal fillers when structuring your next point.'
-                  }
-                ]).map((area, idx) => {
-                  const isString = typeof area === 'string';
-                  const title = isString ? area : area.title;
-                  const advice = !isString && area.actionableAdvice ? area.actionableAdvice : null;
-                  const impact = !isString && area.impact ? area.impact : null;
-                  const starStage = !isString && area.starStage ? area.starStage : null;
+              {hasCompletedInterview && latestSession?.topImprovementAreas && latestSession.topImprovementAreas.length > 0 ? (
+                <div className="space-y-2.5">
+                  {latestSession.topImprovementAreas.map((area, idx) => {
+                    const isString = typeof area === 'string';
+                    const title = isString ? area : area.title;
+                    const advice = !isString && area.actionableAdvice ? area.actionableAdvice : null;
+                    const starStage = !isString && area.starStage ? area.starStage : null;
 
-                  return (
-                    <div key={idx} className="bg-[#0B0F1A] border border-slate-800 p-2.5 rounded flex items-start gap-2">
-                      <span className="w-4 h-4 rounded bg-yellow-900/20 border border-yellow-900/40 text-yellow-400 font-mono text-[10px] flex items-center justify-center shrink-0 font-bold mt-0.5">
-                        {idx + 1}
-                      </span>
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-1.5 flex-wrap">
+                    return (
+                      <div key={idx} className="bg-[#0B0F1A] border border-slate-800/80 p-3 rounded space-y-1">
+                        <div className="flex items-center justify-between gap-2">
                           <p className="text-xs font-semibold text-slate-200">{title}</p>
-                          {impact && (
-                            <span className={`text-[9px] font-mono px-1 py-0.2 rounded uppercase font-bold ${
-                              impact === 'Critical' 
-                                ? 'bg-red-900/30 text-red-400 border border-red-800/40' 
-                                : 'bg-yellow-900/30 text-yellow-400 border border-yellow-800/40'
-                            }`}>
-                              {impact}
-                            </span>
-                          )}
                           {starStage && (
-                            <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-blue-900/30 text-blue-400 border border-blue-800/40">
+                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-blue-900/30 text-blue-400 border border-blue-800/40 uppercase">
                               {starStage}
                             </span>
                           )}
@@ -384,50 +388,132 @@ export const HomeDashboardView: React.FC<HomeDashboardViewProps> = ({
                           <p className="text-[11px] text-slate-400 leading-relaxed">{advice}</p>
                         )}
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="bg-[#0B0F1A] border border-slate-800/80 p-3 rounded space-y-1">
+                    <span className="text-xs font-bold text-blue-400 font-mono">S — Situation</span>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Set the project context, scale, academic constraints, or team setup before technical details.
+                    </p>
+                  </div>
+
+                  <div className="bg-[#0B0F1A] border border-slate-800/80 p-3 rounded space-y-1">
+                    <span className="text-xs font-bold text-purple-400 font-mono">T — Task</span>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      State your exact individual responsibility and technical deliverables clearly.
+                    </p>
+                  </div>
+
+                  <div className="bg-[#0B0F1A] border border-slate-800/80 p-3 rounded space-y-1">
+                    <span className="text-xs font-bold text-amber-400 font-mono">A — Action</span>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Walk through engineering decisions, algorithms used, and debugging steps taken.
+                    </p>
+                  </div>
+
+                  <div className="bg-[#0B0F1A] border border-slate-800/80 p-3 rounded space-y-1">
+                    <span className="text-xs font-bold text-green-400 font-mono">R — Result</span>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Quantify outcomes (e.g. latency drop, test coverage %, demo grade, features shipped).
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Recent Drill Highlight Row */}
-          {latestSession && (
-            <div className="bg-[#161B29] border border-slate-800 rounded p-4 space-y-3">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
-                <div className="flex items-center gap-2">
-                  <Bot className="w-4 h-4 text-red-400" />
-                  <h3 className="text-xs font-mono font-bold text-slate-200 uppercase tracking-wider">
-                    Latest Drill Performance & Coach Verdict ({latestSession.companyName})
-                  </h3>
-                </div>
+          {/* Recent Drill History or Simple Callout */}
+          {hasCompletedInterview && sessionsHistory.length > 0 ? (
+            <div className="bg-[#161B29] border border-slate-800 rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <h3 className="text-xs font-mono font-bold text-slate-200 uppercase">Recent Drill History</h3>
                 <button
-                  onClick={() => onInspectSession(latestSession)}
-                  className="text-xs font-mono text-blue-400 hover:text-blue-300 flex items-center gap-1 cursor-pointer"
+                  onClick={() => setActiveTab('statistics')}
+                  className="text-xs font-mono text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
                 >
-                  <span>Open Full Session Report</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
+                  <span>View All Trends</span>
+                  <ChevronRight className="w-3 h-3" />
                 </button>
               </div>
 
-              <div className="p-3 bg-[#0B0F1A] rounded border border-slate-800">
-                <p className="text-xs text-slate-300 leading-relaxed italic">
-                  "{latestSession.criticalCoachVerdict || latestSession.successLikelihood?.probabilisticExplanation || 'Candidate demonstrates solid domain grasp with key opportunities to articulate measurable results.'}"
+              <div className="space-y-2">
+                {sessionsHistory.slice(-3).reverse().map((session, sIdx) => (
+                  <div
+                    key={session.id || sIdx}
+                    onClick={() => onInspectSession(session)}
+                    className="p-3 bg-[#0B0F1A] hover:bg-slate-800/60 border border-slate-800/80 hover:border-blue-500/50 rounded flex items-center justify-between gap-3 cursor-pointer transition-colors"
+                  >
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-bold text-slate-200">
+                        {session.roleTitle} @ {session.companyName}
+                      </p>
+                      <p className="text-[11px] text-slate-400 font-mono">
+                        {session.date || 'Recent session'} • {session.answers?.length || 3} Questions
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <span className="text-xs font-mono font-bold text-blue-400">
+                          {session.overallScore || session.starCompletenessScore || 80}% STAR
+                        </span>
+                        <span className="block text-[10px] text-slate-500 font-mono">
+                          {session.successLikelihood?.percentage || session.successProbabilityPct || 70}% Offer Prob
+                        </span>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-500" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="bg-[#161B29]/60 border border-slate-800/80 rounded-lg p-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Clock className="w-4 h-4 text-slate-500 shrink-0" />
+                <p className="text-xs text-slate-400">
+                  Ready to practice? Launch your first live practice drill to generate speech acoustics and STAR completeness scores.
                 </p>
               </div>
+              <button
+                onClick={onStartInterview}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-mono font-bold uppercase tracking-wider shrink-0 cursor-pointer transition-colors"
+              >
+                Start Drill
+              </button>
             </div>
           )}
         </div>
       )}
 
-      {/* RENDER VIEW 2: DEDICATED STATISTICS & TRENDS */}
+      {/* 3. TAB CONTENT: STATISTICS */}
       {activeTab === 'statistics' && (
         <div className="animate-in fade-in duration-150">
-          <HistoryTrendsView
-            sessions={sessionsHistory}
-            onSelectSessionForDeepDive={onInspectSession}
-            currentSessionId={latestSession?.id}
-          />
+          {hasCompletedInterview && sessionsHistory.length > 0 ? (
+            <HistoryTrendsView
+              sessions={sessionsHistory}
+              onSelectSessionForDeepDive={onInspectSession}
+              currentSessionId={latestSession?.id}
+            />
+          ) : (
+            <div className="bg-[#161B29] border border-slate-800 rounded-lg p-8 text-center space-y-3">
+              <TrendingUp className="w-8 h-8 text-blue-400 mx-auto" />
+              <h3 className="text-sm font-bold text-slate-100">No Interview Sessions Recorded Yet</h3>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                Performance trends, STAR progression trajectories, and cadence metrics will appear here after you record your first drill.
+              </p>
+              <button
+                onClick={onStartInterview}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold uppercase tracking-wider cursor-pointer inline-flex items-center gap-2"
+              >
+                <Play className="w-3 h-3 fill-current" />
+                <span>Start First Drill</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

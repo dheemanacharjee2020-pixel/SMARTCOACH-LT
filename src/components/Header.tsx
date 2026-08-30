@@ -1,6 +1,8 @@
 import React from 'react';
 import { StepKey, UserProfile } from '../types';
-import { Mic, Menu, X, Bot, Sparkles, User, AlertOctagon } from 'lucide-react';
+import { ThemeToggle } from './ThemeToggle';
+import { useSettings } from '../context/SettingsContext';
+import { Mic, Menu, X, Bot, Sparkles, User, AlertOctagon, Settings } from 'lucide-react';
 
 interface HeaderProps {
   currentStep: StepKey;
@@ -18,6 +20,7 @@ export const Header: React.FC<HeaderProps> = ({
   isInterviewActive
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
+  const { openSettings } = useSettings();
 
   const steps = [
     { key: 'home' as StepKey, label: 'Home Dashboard' },
@@ -43,7 +46,17 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <ThemeToggle variant="compact" />
+
+          <button
+            onClick={openSettings}
+            className="p-1.5 rounded bg-slate-800 text-slate-300 hover:text-slate-100 border border-slate-700 cursor-pointer"
+            aria-label="Open Settings"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+
           {isInterviewActive ? (
             <div className="flex items-center space-x-1.5">
               <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
@@ -58,7 +71,7 @@ export const Header: React.FC<HeaderProps> = ({
           
           <button
             onClick={onEndSession}
-            className="text-[11px] px-2.5 py-1 bg-red-900/20 text-red-400 hover:bg-red-900/40 rounded border border-red-900/40 uppercase font-bold tracking-wider"
+            className="text-[11px] px-2.5 py-1 bg-red-900/20 text-red-400 hover:bg-red-900/40 rounded border border-red-900/40 uppercase font-bold tracking-wider cursor-pointer"
           >
             End
           </button>
@@ -82,6 +95,18 @@ export const Header: React.FC<HeaderProps> = ({
               {currentStep === s.key && <span className="text-[10px] font-mono uppercase text-blue-400">Active</span>}
             </button>
           ))}
+          <div className="pt-2 border-t border-slate-800 mt-1">
+            <button
+              onClick={() => {
+                openSettings();
+                setMobileMenuOpen(false);
+              }}
+              className="w-full p-2.5 text-left text-xs font-medium rounded flex items-center gap-2 text-slate-300 hover:bg-slate-800 cursor-pointer font-mono"
+            >
+              <Settings className="w-4 h-4 text-blue-400" />
+              <span>App Settings</span>
+            </button>
+          </div>
         </div>
       )}
     </header>

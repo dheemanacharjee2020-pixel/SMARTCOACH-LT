@@ -1,18 +1,21 @@
 import React from 'react';
 import { StepKey, UserProfile } from '../types';
+import { ThemeToggle } from './ThemeToggle';
+import { useSettings } from '../context/SettingsContext';
 import { 
   LogIn, 
   FileText, 
   BarChart3, 
   Mic, 
   TrendingUp, 
-  Award,
-  AlertOctagon,
-  Sparkles,
-  Bot,
-  LayoutDashboard,
-  Play,
-  Settings2
+  Award, 
+  AlertOctagon, 
+  Sparkles, 
+  Bot, 
+  LayoutDashboard, 
+  Play, 
+  Settings, 
+  Sliders 
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -30,6 +33,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onEndSession,
   isInterviewActive
 }) => {
+  const { openSettings } = useSettings();
   const isHomeActive = currentStep === 'home' || currentStep === 'results' || currentStep === 'returning_focus';
   const isStatsActive = currentStep === 'statistics';
   const isInterviewRoomActive = currentStep === 'interview_stage' || currentStep === 'interview';
@@ -174,6 +178,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
             "Do not expect comfort. Expect accuracy. Your competitors are working harder than you are right now."
           </p>
         </div>
+
+        {/* Theme Mode Switcher */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500">
+              Appearance
+            </span>
+          </div>
+          <ThemeToggle variant="expanded" />
+        </div>
+
+        {/* Settings Action Button */}
+        <button
+          id="btn-sidebar-settings"
+          onClick={openSettings}
+          className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 font-medium text-xs rounded transition-colors duration-150 border border-slate-800 hover:border-slate-700 flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wider font-mono shadow-xs"
+        >
+          <Settings className="w-3.5 h-3.5 text-blue-400" />
+          <span>App Settings</span>
+        </button>
 
         {/* End Session Button */}
         <button

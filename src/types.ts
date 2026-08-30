@@ -1,5 +1,24 @@
 export type LanguageCode = 'en' | 'hi' | 'bn';
 
+export type CandidateTrack = 
+  | 'undergraduate'     // Undergraduate college student applying for a starting role / internship
+  | 'postgraduate_mba'  // Postgraduate / MBA / University student applying for senior/accelerated roles
+  | 'research_phd'      // Research category student (PhD / Postdoc / Lab Researcher / Scientist)
+  | 'experienced_pro';  // Industry Experienced Professional / Lateral Hire
+
+export interface TrackMetadata {
+  id: CandidateTrack;
+  label: string;
+  badge: string;
+  educationStage: string;
+  progressionLevel: number;
+  questionCount: number;
+  expectedDurationMin: number;
+  description: string;
+  targetFocus: string;
+  sampleRole: string;
+}
+
 export interface UserProfile {
   id: string;
   name: string;
@@ -7,12 +26,24 @@ export interface UserProfile {
   avatarUrl?: string;
   isReturningUser?: boolean;
   lastSessionDate?: string;
+  candidateTrack?: CandidateTrack;
   savedResumeText?: string;
   savedResumeFileName?: string;
   savedCompanyName?: string;
   savedRoleTitle?: string;
   savedJobDescription?: string;
   savedAtsScore?: number;
+}
+
+export interface CompanyRole {
+  id?: string;
+  roleTitle: string;
+  category: 'Engineering' | 'Data & Analytics' | 'AI & Machine Learning' | 'Product & Strategy' | 'Infrastructure & Security' | 'Other';
+  level?: string;
+  description: string;
+  responsibilities: string[];
+  requirements: string[];
+  sampleJd: string;
 }
 
 export interface CompanyProfile {
@@ -24,6 +55,7 @@ export interface CompanyProfile {
   interviewStyle: string;
   keyValues: string[];
   coreTechOrSkills: string[];
+  availableRoles?: CompanyRole[];
   source: 'db' | 'web' | 'not_found';
   verified: boolean;
 }
@@ -160,3 +192,22 @@ export type StepKey =
   | 'ats_check' 
   | 'interview' 
   | 'results';
+
+export type CoachRigor = 'strict' | 'balanced' | 'supportive';
+export type SpeechEngine = 'web_speech' | 'gemini_transcription';
+
+export interface AppSettings {
+  coachRigor: CoachRigor;
+  strictStarScoring: boolean;
+  followupProbing: boolean;
+  speechEngine: SpeechEngine;
+  targetWpm: number;
+  enableTtsQuestionAudio: boolean;
+  ttsSpeed: number;
+  noiseSuppression: boolean;
+  showCountdownTimer: boolean;
+  timerDurationSeconds: number;
+  autoAdvanceQuestions: boolean;
+  showLiveTranscript: boolean;
+  enableWaveformAnimation: boolean;
+}

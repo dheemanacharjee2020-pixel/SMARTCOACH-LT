@@ -1,16 +1,26 @@
+import "dotenv/config";
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { internalCompanyDatabase, seedUsers, sessionEvaluations } from "./server/db";
-import { researchCompanyWithGemini, analyzeResumeWithGemini, generateInterviewQuestions, critiqueAnswerWithGemini, evaluateFullSessionWithGemini } from "./server/gemini";
+import { 
+  researchCompanyWithGemini, 
+  generateRoleDescriptionWithGemini,
+  analyzeResumeWithGemini, 
+  generateInterviewQuestions, 
+  critiqueAnswerWithGemini, 
+  evaluateFullSessionWithGemini,
+  transcribeAudioWithGemini
+} from "./server/gemini";
 import { UserProfile } from "./src/types";
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // JSON Body parsing
-  app.use(express.json({ limit: "10mb" }));
+  // JSON Body parsing with high limit for audio base64 streams
+  app.use(express.json({ limit: "100mb" }));
+  app.use(express.urlencoded({ limit: "100mb", extended: true }));
 
   // In-memory dynamic companies cache
   const companyCache = { ...internalCompanyDatabase };
@@ -140,6 +150,65 @@ async function startServer() {
     }
   });
 
+  // Fetch or generate hiring roles for a company
+  app.post("/api/company/roles", async (req, res) => {
+    try {
+      const { companyName } = req.body;
+      if (!companyName || typeof companyName !== 'string') {
+        return res.status(400).json({ success: false, error: "Company name is required." });
+      }
+
+      const key = companyName.trim().toLowerCase();
+      let company = companyCache[key];
+
+      if (!company) {
+        // Search in cache by partial match
+        const partialMatch = Object.keys(companyCache).find(k => k === key || key.includes(k) || k.includes(key));
+        if (partialMatch) {
+          company = companyCache[partialMatch];
+        } else {
+          // Perform web research in background
+          company = await researchCompanyWithGemini(companyName.trim());
+          if (company && company.verified) {
+            companyCache[key] = company;
+          }
+        }
+      }
+
+      const roles = company?.availableRoles || [];
+      res.json({
+        success: true,
+        companyName: company?.name || companyName,
+        roles
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Generate authentic JD for any custom role at a company
+  app.post("/api/company/generate-jd", async (req, res) => {
+    try {
+      const { companyName, roleTitle, companyProfile } = req.body;
+      if (!companyName || !roleTitle) {
+        return res.status(400).json({ success: false, error: "Company name and Role title are required." });
+      }
+
+      const result = await generateRoleDescriptionWithGemini(
+        companyName.trim(),
+        roleTitle.trim(),
+        companyProfile
+      );
+
+      res.json({
+        success: true,
+        ...result
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // ==========================================
   // ATS RESUME ANALYZER
   // ==========================================
@@ -177,7 +246,7 @@ async function startServer() {
   // ==========================================
   app.post("/api/interview/questions", async (req, res) => {
     try {
-      const { roleTitle, jobDescription, companyProfile, resumeText, focusArea } = req.body;
+      const { roleTitle, jobDescription, companyProfile, resumeText, focusArea, candidateTrack } = req.body;
       const questions = await generateInterviewQuestions(
         roleTitle || "Senior Software Engineer",
         jobDescription || "Standard job responsibilities",
@@ -192,11 +261,34 @@ async function startServer() {
           verified: true
         },
         resumeText || "",
-        focusArea
+        focusArea,
+        candidateTrack || 'undergraduate'
       );
 
       res.json({ success: true, questions });
     } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // ==========================================
+  // AUDIO TRANSCRIPTION & SPEECH RECOGNITION
+  // ==========================================
+  app.post("/api/interview/transcribe-audio", async (req, res) => {
+    try {
+      const { audioData, mimeType = 'audio/webm', language = 'en' } = req.body;
+      if (!audioData) {
+        return res.status(400).json({ success: false, error: "Audio data is required." });
+      }
+
+      const result = await transcribeAudioWithGemini(audioData, mimeType, language);
+      res.json({
+        success: true,
+        transcript: result.transcript,
+        wordCount: result.wordCount
+      });
+    } catch (err: any) {
+      console.error("Transcribe audio error:", err);
       res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -272,11 +364,11 @@ async function startServer() {
       const { userId } = req.query;
       let allSessions = Array.from(sessionEvaluations.values());
 
-      if (userId) {
-        const userFiltered = allSessions.filter(s => s.userId === userId);
-        if (userFiltered.length > 0) {
-          allSessions = userFiltered;
-        }
+      if (userId && typeof userId === 'string') {
+        allSessions = allSessions.filter(s => s.userId === userId);
+      } else if (!userId) {
+        // If not authenticated or no user query, return empty list
+        allSessions = [];
       }
 
       // Sort chronologically ascending for trend line charts
@@ -299,6 +391,30 @@ async function startServer() {
   // Health check
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok", service: "SmartCoach LT Backend", timestamp: new Date().toISOString() });
+  });
+
+  // ==========================================
+  // API ROUTE FALLBACKS & ERROR HANDLING
+  // Ensures /api/* requests ALWAYS return JSON and never fall through to Vite HTML
+  // ==========================================
+  app.all("/api/*", (req, res) => {
+    res.status(404).json({
+      success: false,
+      error: `API route not found: ${req.method} ${req.originalUrl}`
+    });
+  });
+
+  // Global Error handler for /api routes
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (req.path.startsWith("/api") || req.originalUrl?.startsWith("/api")) {
+      console.error("API error handler caught:", req.method, req.originalUrl, err);
+      const status = typeof err.status === 'number' ? err.status : (typeof err.statusCode === 'number' ? err.statusCode : 500);
+      return res.status(status).json({
+        success: false,
+        error: err.message || "An unexpected error occurred during API processing."
+      });
+    }
+    next(err);
   });
 
   // ==========================================
